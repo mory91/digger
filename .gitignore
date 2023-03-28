@@ -177,4 +177,5 @@ pyrightconfig.json
 data
 */files/*
 */__pycahe__/*
+*/tmp-data/*
 # End of https://www.toptal.com/developers/gitignore/api/python

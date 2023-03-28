@@ -1,0 +1,12 @@
+MTU = 1514
+MB = 1024 * 1024
+KB = 1024
+GB = 1024 * 1024 * 1024
+SECONDS = 1e9
+MILLI_SECONDS = 1e6
+MICRO_SECONDS = 1e3
+NANO_SECONDS = 1
+PACKETS = "../data/40/node-3/train/packets"
+ALLOCS = "../data/40/node-3/train/allocations"
+TIMERES = 'Milliseconds'
+TIMERESL = 'm'
