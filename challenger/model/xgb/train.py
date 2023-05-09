@@ -63,18 +63,19 @@ def xgboost_learn(
 
     inputs, outputs = xgboost_util.make_io(data)
 
+
     # fit model no training data
-    n_estimators = 20
+    n_estimators = 23
     param = {
         'max_depth': 15,
         'booster': 'gbtree',
         "predictor": "gpu_predictor",
         'tree_method': 'gpu_hist',
-        'colsample_bytree': 0.8,
-        'subsample': 0.9,
-        'alpha': 0.8,
-        'colsample_bylevel': 0.5,
-        'gamma': 0.25,
+        'colsample_bytree': 0.85,
+        # 'subsample': 0.9,
+        'alpha': 2,
+        'colsample_bylevel': 0.60,
+        'gamma': 0.25,  # 2
     }
     extra_params = dict()
 
@@ -93,7 +94,8 @@ def xgboost_learn(
         )
     param.update(extra_params)
 
-    em = emthresh / scaling[TARGET_COLUMN]
+    if scaling[TARGET_COLUMN] != 0:
+        em = emthresh / scaling[TARGET_COLUMN]
 
     training = xgb.DMatrix(inputs, outputs, feature_names=data[0][0].columns)
     model = xgb.train(param, training, n_estimators)
@@ -106,7 +108,7 @@ def xgboost_learn(
     )
 
     # title = 'classification' if problem_type == CLASSIFICATION else 'regression'
-    # plot_importance(model, max_num_features=20)
+    # plot_importance(model, max_num_features=30)
     # plt.savefig(f'{title}.png', dpi=200, pad_inches=0.5, bbox_inches='tight')
 
     return result, model

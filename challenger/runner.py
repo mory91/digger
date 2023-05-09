@@ -3,8 +3,6 @@ import sys
 import logging
 import numpy as np
 import pandas as pd
-import polars as pl
-from feature.system_trace import trace_dtypes
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from constants import NANO_TO_MICRO, ALL_FEATURES
@@ -13,10 +11,10 @@ from model.flux import FluxClassifier, FluxRegression
 from feature.subset import (
     get_all_features,
     get_nsdi_features,
-    get_fs_features
 )
 
-PREFIX = "../data/5/node-3"
+BACKUP = "/usr/local/etc/backup/"
+PREFIX = "../data/9/node-1"
 NODE_1 = 237
 NODE_2 = 229
 NODE_3 = 212
@@ -24,8 +22,12 @@ NODE_4 = 144
 MORTEZA = 222
 BARDIA = 116
 
-ME = NODE_3
-OTHERS = [NODE_1, NODE_4]
+A_NODE_1 = 161
+A_NODE_2 = 128
+A_NODE_3 = 45
+
+ME = NODE_1
+OTHERS = [NODE_4, NODE_2, NODE_3]
 
 logging.basicConfig(filename='out.log', encoding='utf-8', level=logging.INFO)
 
@@ -56,16 +58,8 @@ class Runner:
 
             # limit
             # ds = ds.iloc[:10_000_000]
-            ds = ds.iloc[:7_000_000]
-
-            train_ds = get_all_features(ds)
-            all_models = [
-                ('all_regression', FluxRegression),
-                ('all_classifier', FluxClassifier)
-            ]
-            for k, model_cls in all_models:
-                m = model_cls(train_ds)
-                result[td][k] = m.train()
+            # max_size = max(7_000_000, len(ds) * 0.8)
+            ds = ds.iloc[:600_000]
 
             train_ds = get_nsdi_features(ds)
             nsdi_models = [
@@ -76,14 +70,14 @@ class Runner:
                 m = model_cls(train_ds)
                 result[td][k] = m.train()
 
-            # train_ds = get_fs_features(ds)
-            # fs_models = [
-            #     ('fs_regression', FluxRegression),
-            #     # ('fs_classifier', FluxClassifier),
-            # ]
-            # for k, model_cls in fs_models:
-            #     m = model_cls(train_ds)
-            #     result[td][k] = m.train()
+            train_ds = get_all_features(ds)
+            all_models = [
+                ('all_regression', FluxRegression),
+                ('all_classifier', FluxClassifier)
+            ]
+            for k, model_cls in all_models:
+                m = model_cls(train_ds)
+                result[td][k] = m.train()
 
             logging.info(f"{td}, {len(ds)}")
 
@@ -146,7 +140,7 @@ if __name__ == "__main__":
                 cdf = np.cumsum(hist)
                 print(cdf)
     else:
-        times = range(500, 10200, 250)
+        times = range(31000, 40200, 1000)
         source, destinations = ME, OTHERS
         prefix = PREFIX
         runner = Runner(times, prefix, source, destinations, ALL_FEATURES)

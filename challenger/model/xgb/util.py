@@ -38,9 +38,7 @@ def print_metrics(real, prediction, problem_type=REGRESSION, emthresh=3500):
         pred = np.round(prediction)
         scores = {
             'accuracy': accuracy_score(real, pred),
-            'rocauc': roc_auc_score(real, prediction),
             'f1': f1_score(real, pred),
-            'cross-entropy loss': log_loss(real, pred)
         }
 
     return scores
@@ -55,6 +53,8 @@ def calculate_scaling(training_paths):
             if column not in scaling:
                 scaling[column] = 0.
             scaling[column] = max(scaling[column], float(df[column].max()))
+            if scaling[column] == 0.0:
+                scaling[column] = 1.0
     return scaling
 
 

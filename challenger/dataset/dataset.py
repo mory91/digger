@@ -10,7 +10,7 @@ from constants import (
     NROWS,
     B
 )
-from feature import NetAgg, Flow, SystemTrace
+from feature import NetAgg, Flow, SystemTrace, NoFlowException
 from dataset.abstract import Dataset
 
 FILES = 'files'
@@ -123,16 +123,19 @@ class FlowDataset(Dataset):
                 last_idx = len(df)
 
             current_df = df[:last_idx]
+            remaining_df = df[last_idx:]
 
-            ds = self.packet_to_flow(
-                current_df, self.time_delta, self.source_ip,
-                self.destination_ips, in_init=in_init, out_init=out_init
-            )
+            try:
+                ds = self.packet_to_flow(
+                    current_df, self.time_delta, self.source_ip,
+                    self.destination_ips, in_init=in_init, out_init=out_init
+                )
+            except NoFlowException:
+                logging.info("NO FLOWS NOW")
+                continue
 
             in_init = ds['networkin'].iloc[-1]
             out_init = ds['networkout'].iloc[-1]
-
-            remaining_df = df[last_idx:]
 
             if cycles == 0:
                 ds.to_csv(self.flows_target_file, index=False)
@@ -174,6 +177,7 @@ class FullDataset(Dataset):
 
     def create_ds(self):
         if self.dataset_df is not None:
+            return self.dataset_df
             remaining_features = set(self.full_features) - \
                 set(self.dataset_df.columns)
             remaining_features = set(self.drop_replace).union(

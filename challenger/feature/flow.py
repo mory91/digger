@@ -1,9 +1,15 @@
+import logging
+
 import pandas as pd
 import numpy as np
 from feature.abstract import Feature
 from constants import (
     MAX_LEN
 )
+
+
+class NoFlowException(Exception):
+    pass
 
 
 class Flow(Feature):
@@ -93,7 +99,9 @@ class Flow(Feature):
                 )[:-1]
                 flow_time = Flow.get_flow_times(flow_idx, time_stamp)
                 flow_sizes.append(Flow.get_flow_sizes(flow_idx, value_trace))
-                gaps.append(Flow.get_flow_gaps(flow_time))
+                flow_gap = Flow.get_flow_gaps(flow_time)
+                flow_gap[flow_gap < 0] = 0.0
+                gaps.append(flow_gap)
                 s = len(flow_time)
                 src_ips.append(np.full(s, s_ip, dtype=int))
                 dest_ips.append(np.full(s, d_ip, dtype=int))
@@ -102,6 +110,8 @@ class Flow(Feature):
                 flow_times.append(flow_time)
                 value_traces.append(value_trace)
                 flow_idxs.append(flow_idx)
+        if len(flow_sizes) == 0:
+            raise NoFlowException()
         return (
             np.concatenate(flow_times),
             np.concatenate(flow_sizes),
