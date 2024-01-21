@@ -77,12 +77,13 @@ class Flow(Feature):
         gaps = []
         src_ips, dest_ips = [], []
         src_ports, dest_ports = [], []
+        # CHANGE ALL OF THIS BY GROUP BY
         for d_ip in d_ips:
             df_ip = packets_df[
                 (packets_df['src_ip'] == s_ip) &
                 (packets_df['dest_ip'] == d_ip)
             ]
-            for _, flows_packets_df in df_ip.groupby(
+            for (sp, dp), flows_packets_df in df_ip.groupby(
                     ['src_port', 'dest_port']
             ):
                 trace = flows_packets_df.values

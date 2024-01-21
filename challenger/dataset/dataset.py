@@ -4,16 +4,21 @@ from utils import force_to_type
 import pandas as pd
 import numpy as np
 from constants import (
+    FILES,
     SYSTEM_FEATURES,
     TIME_DELTA,
     NANO_TO_MICRO,
     NROWS,
     B
 )
-from feature import NetAgg, Flow, SystemTrace, NoFlowException
+from feature import (
+    NetAgg,
+    Flow,
+    SystemTrace,
+    NoFlowException,
+    ServerToServerTimeseries,
+)
 from dataset.abstract import Dataset
-
-FILES = 'files'
 
 netwrok_trace_type_mapping = {
     'timestamp': (1, 'Int64'),
@@ -33,10 +38,7 @@ def reload_df(f):
     return flows_df
 
 
-class FlowDataset(Dataset):
-    MEMORY = 0
-    DISK = 1
-
+class NetworkSeriesDataset(Dataset):
     def __init__(
             self,
             source_ip,
@@ -45,16 +47,12 @@ class FlowDataset(Dataset):
             volumefactor=B,
             chunksize=None,
             time_delta=TIME_DELTA * NANO_TO_MICRO,
-            flows_target_file='flows.csv'
+            target_file='flows.csv'
     ):
-        self.chunksize = chunksize
-        if self.chunksize is not None:
-            self.save_type = FlowDataset.MEMORY
-        else:
-            self.save_type = FlowDataset.DISK
-        self.flows_target_file = flows_target_file
         self.source_ip = source_ip
         self.destination_ips = dest_ips
+        self.chunksize = chunksize
+        self.target_file = target_file
         self.packets_path = packets_path
         self.time_delta = time_delta
         self.names = sorted(list(netwrok_trace_type_mapping.keys()),
@@ -72,33 +70,77 @@ class FlowDataset(Dataset):
         df['size'] = df['size'] / self.volumefactor
         return df
 
+    def get_network_series(
+        self,
+        packets_df,
+        time_delta,
+        source,
+        destinations,
+        start_time
+    ):
+        pass
+
+    def get_network_aggregated(
+        self,
+        packets_df,
+        times,
+        source,
+        destinations,
+        in_init=0,
+        out_init=0,
+    ):
+        net_agg = NetAgg(
+            packets_df, times, source, destinations, in_init, out_init
+        )
+        ds_net_agg = net_agg.create_feature_df()
+        return net_agg, ds_net_agg
+
+    def create_df(self):
+        pass
+
     def packet_to_flow(
-            self,
-            packets_df,
-            time_delta,
-            source,
-            destinations,
-            in_init=0,
-            out_init=0
+        self,
+        packets_df,
+        time_delta,
+        source,
+        destinations,
+        in_init=0,
+        out_init=0,
+        start_time=None
+    ):
+        flow, ds_flow, next_start_time = self.get_network_series(
+            packets_df, time_delta, source, destinations, start_time
+        )
+        net_agg, ds_net_agg = self.get_network_aggregated(
+            packets_df, flow.flow_times[:, 0],
+            source, destinations, in_init, out_init
+        )
+        ds = pd.concat((ds_flow, ds_net_agg), axis=1)[1:]
+        ds = ds.fillna(0)
+        return ds, next_start_time
+
+
+class FlowDataset(NetworkSeriesDataset):
+    def get_network_series(
+        self,
+        packets_df,
+        time_delta,
+        source,
+        destinations,
+        start_time
     ):
         flow = Flow(
             packets_df, time_delta, source, destinations
         )
-        net_agg = NetAgg(
-            packets_df, flow.flow_times[:, 0],
-            source, destinations, in_init, out_init
-        )
         ds_flow = flow.create_feature_df()
-        ds_net_agg = net_agg.create_feature_df()
-        ds = pd.concat((ds_flow, ds_net_agg), axis=1)[1:]
-        ds = ds.fillna(0)
-        return ds
+        return flow, ds_flow, None
 
     def create_ds(self):
-        if os.path.exists(self.flows_target_file):
+        if os.path.exists(self.target_file):
             return
         remaining_df = pd.DataFrame()
         in_init, out_init = 0, 0
+        next_start_time = None
         last_idx = 0
         cycles = 0
         for df in pd.read_csv(
@@ -126,21 +168,90 @@ class FlowDataset(Dataset):
             remaining_df = df[last_idx:]
 
             try:
-                ds = self.packet_to_flow(
+                ds, next_start_time = self.packet_to_flow(
                     current_df, self.time_delta, self.source_ip,
-                    self.destination_ips, in_init=in_init, out_init=out_init
+                    self.destination_ips, in_init=in_init, out_init=out_init,
+                    start_time=next_start_time
                 )
             except NoFlowException:
                 logging.info("NO FLOWS NOW")
+                continue
+
+            if len(ds) == 0:
+                print("LEN DS = 0")
                 continue
 
             in_init = ds['networkin'].iloc[-1]
             out_init = ds['networkout'].iloc[-1]
 
             if cycles == 0:
-                ds.to_csv(self.flows_target_file, index=False)
+                ds.to_csv(self.target_file, index=False)
             else:
-                ds.to_csv(self.flows_target_file, index=False,
+                ds.to_csv(self.target_file, index=False,
+                          mode='a', header=False)
+
+            cycles += 1
+
+
+class ServerToServerDataset(NetworkSeriesDataset):
+    def get_network_series(
+        self,
+        packets_df,
+        time_delta,
+        source,
+        destinations,
+        start_time
+    ):
+        ts = ServerToServerTimeseries(
+            packets_df, time_delta, source, destinations, start_time
+        )
+        ds_ts = ts.create_feature_df()
+        return ts, ds_ts, ts.next_start_time
+
+    def create_ds(self):
+        if os.path.exists(self.target_file):
+            return
+        remaining_df = pd.DataFrame()
+        in_init, out_init = 0, 0
+        next_start_time = None
+        last_idx = 0
+        cycles = 0
+        for df in pd.read_csv(
+                self.packets_path,
+                header=None,
+                index_col=False,
+                names=self.names,
+                sep=',',
+                on_bad_lines='skip',
+                chunksize=self.chunksize,
+        ):
+            df = self.clean_df(df)
+            df = pd.concat((remaining_df, df), ignore_index=True)
+            df = df.sort_values(by='timestamp')
+
+            try:
+                ds, next_start_time = self.packet_to_flow(
+                    df, self.time_delta, self.source_ip, self.destination_ips,
+                    in_init=in_init, out_init=out_init,
+                    start_time=next_start_time
+                )
+            except NoFlowException:
+                logging.info("NO FLOWS NOW")
+                continue
+
+            if len(ds) == 0:
+                print("LEN DS = 0")
+                continue
+
+            remaining_df = df[df['timestamp'] > next_start_time]
+
+            in_init = ds['networkin'].iloc[-1]
+            out_init = ds['networkout'].iloc[-1]
+
+            if cycles == 0:
+                ds.to_csv(self.target_file, index=False)
+            else:
+                ds.to_csv(self.target_file, index=False,
                           mode='a', header=False)
 
             cycles += 1
@@ -160,7 +271,7 @@ class SystemTraceDataset(Dataset):
 class FullDataset(Dataset):
     def __init__(self, time_delta, prefix,
                  source_ip, destination_ip, full_features,
-                 drop_replace=()):
+                 network_ds_class=FlowDataset, drop_replace=()):
         self.time_delta = time_delta
         self.prefix = prefix
         self.source_ip = source_ip
@@ -172,31 +283,19 @@ class FullDataset(Dataset):
         self.dataset_df = None
         os.makedirs(self.dataset_dir, exist_ok=True)
         self.drop_replace = drop_replace
+        self.network_ds_class = network_ds_class
         if os.path.exists(self.dataset_file):
             self.dataset_df = reload_df(self.dataset_file)
 
     def create_ds(self):
         if self.dataset_df is not None:
             return self.dataset_df
-            remaining_features = set(self.full_features) - \
-                set(self.dataset_df.columns)
-            remaining_features = set(self.drop_replace).union(
-                remaining_features
-            )
-            self.full_features = list(remaining_features)
-            if len(self.drop_replace) > 0:
-                if set(self.drop_replace) in set(self.dataset_df.columns):
-                    self.dataset_df = self.dataset_df.drop(
-                        columns=self.drop_replace
-                    )
-            if len(self.full_features) == 0:
-                return self.dataset_df
 
         packet_file = f"{self.prefix}/packets"
-        flow_dataset = FlowDataset(
+        flow_dataset = self.network_ds_class(
             self.source_ip, self.destination_ip, packet_file,
             chunksize=NROWS, time_delta=self.time_delta,
-            flows_target_file=self.flows_file
+            target_file=self.flows_file
         )
         flow_dataset.create_ds()
         flows_df = reload_df(self.flows_file)
